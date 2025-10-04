@@ -1,0 +1,150 @@
+/* README קצר (מה יש בקובץ זה):
+
+קומפוננט React יחיד (ברירת-מחדל export) שמציג מפה (Leaflet)
+
+אפשר ללחוץ על המפה להוסיף נקודת ציון (שדות: כותרת, תיאור)
+
+רשימת נקודות בצד עם כפתורים למעבר, עריכה, מחיקה
+
+שמירה אוטומטית ל-localStorage + ייצוא/יבוא JSON
+
+
+תלויות שיש להתקין בפרויקט (Vite/Create React App וכו'): npm install react react-dom npm install react-leaflet leaflet
+
+ול־Optional (Tailwind לשיפור המראה): npm install -D tailwindcss postcss autoprefixer npx tailwindcss init
+
+שימוש מהיר (Vite):
+
+1. npx create-vite@latest my-map-app --template react
+
+
+2. העתק את הקובץ הזה כsrc/App.jsx (וודא שיש src/main.jsx שמייבא App)
+
+
+3. התקן את התלויות שצוינו
+
+
+4. npm run dev
+
+
+
+הערה על איקון של Leaflet: Leaflet לא בוחר אוטומטית אייקון טוב בסביבות מודרניות — מטפל בזה בקוד. */
+
+import React, { useState, useEffect, useRef } from "react"; import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet"; import L from "leaflet"; import "leaflet/dist/leaflet.css";
+
+// תיקון איקוןירה של leaflet בסביבות מודרניות delete L.Icon.Default.prototype._getIconUrl; L.Icon.Default.mergeOptions({ iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png", iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png", shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png", });
+
+// קומפוננטה שמטפלת בלחיצה על המפה function ClickToAdd({ onAdd }) { useMapEvents({ click(e) { const title = window.prompt("שם הנקודה (כותרת):", "נקודת ציון חדשה"); if (!title) return; // אם המשתמש ביטל const description = window.prompt("תיאור (אופציונלי):", ""); onAdd({ lat: e.latlng.lat, lng: e.latlng.lng, title, description }); }, }); return null; }
+
+export default function App() { const [markers, setMarkers] = useState(() => { try { const raw = localStorage.getItem("my_map_markers_v1"); return raw ? JSON.parse(raw) : []; } catch (e) { console.error(e); return []; } });
+
+const mapRef = useRef();
+
+useEffect(() => { localStorage.setItem("my_map_markers_v1", JSON.stringify(markers)); }, [markers]);
+
+function handleAdd(marker) { const id = Date.now(); setMarkers((m) => [...m, { id, ...marker }]); }
+
+function handleDelete(id) { if (!window.confirm("למחוק נקודת ציון זו?")) return; setMarkers((m) => m.filter((x) => x.id !== id)); }
+
+function handleEdit(id) { const marker = markers.find((m) => m.id === id); if (!marker) return; const title = window.prompt("ערוך כותרת:", marker.title); if (title === null) return; // ביטול const description = window.prompt("ערוך תיאור:", marker.description || ""); setMarkers((m) => m.map((x) => (x.id === id ? { ...x, title, description } : x))); }
+
+function flyTo(marker) { if (!mapRef.current) return; const map = mapRef.current; map.flyTo([marker.lat, marker.lng], 15, { duration: 1.0 }); }
+
+function exportJSON() { const dataStr = JSON.stringify(markers, null, 2); const blob = new Blob([dataStr], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "map_markers.json"; a.click(); URL.revokeObjectURL(url); }
+
+function importJSONFromFile(file) { const reader = new FileReader(); reader.onload = (e) => { try { const data = JSON.parse(e.target.result); if (!Array.isArray(data)) throw new Error("פורמט לא תקין - יש ציפייה למערך"); // הוספה (מיזוג) של נקודות החדשות עם שמירת id ייחודי const normalized = data.map((d) => ({ id: Date.now() + Math.random(), ...d })); setMarkers((m) => [...m, ...normalized]); } catch (err) { alert("שגיאה ביבוא JSON: " + err.message); } }; reader.readAsText(file); }
+
+function handlePasteJSON() { const raw = window.prompt("הדבק כאן JSON של נקודות ציון:"); if (!raw) return; try { const data = JSON.parse(raw); if (!Array.isArray(data)) throw new Error("פורמט לא תקין - יש ציפייה למערך"); const normalized = data.map((d) => ({ id: Date.now() + Math.random(), ...d })); setMarkers((m) => [...m, ...normalized]); } catch (err) { alert("שגיאה בפורמט JSON: " + err.message); } }
+
+return ( <div className="min-h-screen flex flex-col md:flex-row"> {/* סרגל צד */} <aside className="w-full md:w-96 p-4 bg-gray-50 border-r"> <h1 className="text-xl font-bold mb-2">נקודות ציון</h1> <p className="text-sm mb-4">לחץ על המפה כדי להוסיף נקודה. ניתן לערוך, למחוק, לייצא ולייבא.</p>
+
+<div className="mb-3 flex gap-2">
+      <button
+        className="px-3 py-2 rounded border hover:bg-gray-100"
+        onClick={() => {
+          const center = mapRef.current ? mapRef.current.getCenter() : null;
+          if (!center) return;
+          const title = window.prompt("שם נקודת ציון חדשה (ברירת מחדל):", "נקודה באמצע");
+          if (!title) return;
+          handleAdd({ lat: center.lat, lng: center.lng, title, description: "" });
+        }}
+      >
+        הוסף באמצע המפה
+      </button>
+      <button className="px-3 py-2 rounded border" onClick={exportJSON}>
+        ייצא JSON
+      </button>
+      <label className="px-3 py-2 rounded border cursor-pointer">
+        ייבא JSON
+        <input
+          type="file"
+          accept="application/json"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) importJSONFromFile(e.target.files[0]);
+          }}
+        />
+      </label>
+      <button className="px-3 py-2 rounded border" onClick={handlePasteJSON}>
+        הדבק JSON
+      </button>
+    </div>
+
+    <div className="space-y-2 max-h-[60vh] overflow-auto">
+      {markers.length === 0 && <div className="text-sm text-gray-500">אין נקודות כרגע.</div>}
+      {markers.map((m) => (
+        <div key={m.id} className="p-2 border rounded bg-white">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="font-semibold">{m.title}</div>
+              <div className="text-xs text-gray-600">{m.description}</div>
+              <div className="text-xs text-gray-500">{m.lat.toFixed(5)}, {m.lng.toFixed(5)}</div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <button className="text-sm underline" onClick={() => flyTo(m)}>מיקום</button>
+              <button className="text-sm underline" onClick={() => handleEdit(m.id)}>ערוך</button>
+              <button className="text-sm text-red-600 underline" onClick={() => handleDelete(m.id)}>מחק</button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <footer className="text-xs text-gray-500 mt-4">שמור ל-localStorage אוטומטית. ניתן למחוק את הכל דרך כלי המפתחים או למחוק פריט לפרט.</footer>
+  </aside>
+
+  {/* המפה */}
+  <main className="flex-1 relative h-[70vh] md:h-screen">
+    <MapContainer
+      whenCreated={(mapInstance) => (mapRef.current = mapInstance)}
+      center={[31.7683, 35.2137]} // מרכז ברירת מחדל (ירושלים)
+      zoom={12}
+      style={{ height: "100%", width: "100%" }}
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      />
+
+      <ClickToAdd onAdd={handleAdd} />
+
+      {markers.map((m) => (
+        <Marker key={m.id} position={[m.lat, m.lng]}>
+          <Popup>
+            <div>
+              <strong>{m.title}</strong>
+              <div>{m.description}</div>
+              <div className="mt-2">
+                <button onClick={() => handleEdit(m.id)} style={{ marginRight: 8 }}>ערוך</button>
+                <button onClick={() => handleDelete(m.id)}>מחק</button>
+              </div>
+            </div>
+          </Popup>
+        </Marker>
+      ))}
+    </MapContainer>
+  </main>
+</div>
+
+); }
+
